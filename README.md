@@ -54,7 +54,7 @@ if (api) {
 |--------|---------|
 | `OllamaBridge.generate(prompt, opts)` | Single text generation via `/api/generate` |
 | `OllamaBridge.chat(messages, opts)` | Chat completion via `/api/chat` |
-| `OllamaBridge.embed(input, opts)` | Vector embedding via `/api/embeddings` |
+| `OllamaBridge.embed(input, opts)` | Vector embedding via `/api/embed` |
 | `OllamaBridge.generateBatch(prompts, opts)` | Batch generate with concurrency cap |
 | `OllamaBridge.chatBatch(conversations, opts)` | Batch chat with concurrency cap |
 | `OllamaBridge.narrate(context, opts)` | Flavour wrapper with RPG narrator system prompt |

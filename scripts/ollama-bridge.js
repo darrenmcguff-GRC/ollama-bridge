@@ -29,7 +29,7 @@ class OllamaBridge {
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaUrl', {
       scope: 'world', config: true, type: String, default: 'http://localhost:11434',
       name: 'Ollama URL',
-      hint: 'Base URL of your Ollama instance (local or cloud).'
+      hint: 'Base URL of your Ollama instance. Use http://localhost:11434 for local, https://ollama.com for cloud, or http://localhost:3001 if running the companion proxy.'
     });
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaModel', {
       scope: 'world', config: true, type: String, default: 'llama3',
@@ -66,7 +66,7 @@ class OllamaBridge {
   static get _config() {
     return {
       enabled:   game.settings.get(OLLAMA_MODULE_ID, 'ollamaEnabled'),
-      url:       game.settings.get(OLLAMA_MODULE_ID, 'ollamaUrl').replace(/\/$/, ''),
+      url:       game.settings.get(OLLAMA_MODULE_ID, 'ollamaUrl').replace(/\/$/, '').replace(/\/api$/, ''),
       model:     game.settings.get(OLLAMA_MODULE_ID, 'ollamaModel'),
       maxConcurrent: Math.max(1, game.settings.get(OLLAMA_MODULE_ID, 'ollamaMaxConcurrent') || 3),
       temperature: game.settings.get(OLLAMA_MODULE_ID, 'ollamaTemperature'),
