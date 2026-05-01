@@ -56,6 +56,11 @@ class OllamaBridge {
       name: 'Request Timeout (ms)',
       hint: 'Abort requests that take longer than this.'
     });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaApiKey', {
+      scope: 'world', config: true, type: String, default: '',
+      name: 'API Key (optional)',
+      hint: 'Bearer token for ollama.com cloud API. Leave blank for local instances.'
+    });
   }
 
   static get _config() {
@@ -66,8 +71,54 @@ class OllamaBridge {
       maxConcurrent: Math.max(1, game.settings.get(OLLAMA_MODULE_ID, 'ollamaMaxConcurrent') || 3),
       temperature: game.settings.get(OLLAMA_MODULE_ID, 'ollamaTemperature'),
       system:    game.settings.get(OLLAMA_MODULE_ID, 'ollamaSystemPrompt'),
-      timeout:   game.settings.get(OLLAMA_MODULE_ID, 'ollamaTimeout') || 30000
+      timeout:   game.settings.get(OLLAMA_MODULE_ID, 'ollamaTimeout') || 30000,
+      apiKey:    game.settings.get(OLLAMA_MODULE_ID, 'ollamaApiKey') || ''
     };
+  }
+
+  /* ── authenticated fetch wrapper ── */
+  static async _makeRequest(endpoint, body, opts = {}) {
+    const cfg = this._config;
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {})
+    };
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout);
+
+    try {
+      const res = await fetch(`${cfg.url}${endpoint}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      });
+      clearTimeout(t);
+
+      if (res.status === 401) throw new Error('Ollama authentication failed — check API key');
+      if (res.status === 403) throw new Error('Ollama access denied — verify API key permissions');
+      if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
+      return await res.json();
+    } catch(e) {
+      clearTimeout(t);
+      throw e;
+    }
+  }
+
+  static async _makeGetRequest(endpoint, opts = {}) {
+    const cfg = this._config;
+    const headers = {
+      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {})
+    };
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout || 5000);
+    try {
+      const res = await fetch(`${cfg.url}${endpoint}`, { method: 'GET', headers, signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
+      return await res.json();
+    } catch(e) { clearTimeout(t); throw e; }
   }
 
   /* ── health check ── */
@@ -75,12 +126,7 @@ class OllamaBridge {
     const cfg = this._config;
     if (!cfg.enabled) return { ok: false, error: 'Ollama bridge is disabled in settings.' };
     try {
-      const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 5000);
-      const res = await fetch(`${cfg.url}/api/tags`, { method: 'GET', signal: ctrl.signal });
-      clearTimeout(t);
-      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
-      const data = await res.json();
+      const data = await this._makeGetRequest('/api/tags', { timeout: 5000 });
       const models = (data.models || []).map(m => m.name || m.model);
       return { ok: true, models };
     } catch (e) {
@@ -106,19 +152,7 @@ class OllamaBridge {
     if (opts.format) body.format = opts.format;
     if (opts.images) body.images = opts.images;
 
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout);
-
-    const res = await fetch(`${cfg.url}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    clearTimeout(t);
-
-    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
-    const data = await res.json();
+    const data = await this._makeRequest('/api/generate', body, opts);
     return data.response || '';
   }
 
@@ -139,43 +173,19 @@ class OllamaBridge {
     if (opts.images) body.images = opts.images;
     if (opts.tools) body.tools = opts.tools;
 
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout);
-
-    const res = await fetch(`${cfg.url}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    clearTimeout(t);
-
-    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
-    const data = await res.json();
+    const data = await this._makeRequest('/api/chat', body, opts);
     return data.message?.content || '';
   }
 
-  /* ── embeddings (/api/embeddings) ── */
+  /* ── embeddings (/api/embed) ── */
   static async embed(input, opts = {}) {
     const cfg = this._config;
     if (!cfg.enabled) throw new Error('Ollama bridge is disabled.');
     const model = opts.embedModel || opts.model || cfg.model;
-    const body = { model, prompt: input };
+    const body = { model, input };
 
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout);
-
-    const res = await fetch(`${cfg.url}/api/embeddings`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: ctrl.signal
-    });
-    clearTimeout(t);
-
-    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
-    const data = await res.json();
-    return data.embedding || [];
+    const data = await this._makeRequest('/api/embed', body, opts);
+    return data.embeddings || [];
   }
 
   /* ── batch generate (respects maxConcurrent) ── */
