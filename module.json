@@ -1,0 +1,20 @@
+{
+  "id": "ollama-bridge",
+  "title": "Ollama Bridge",
+  "description": "Native AI service integration for Foundry VTT. Connects to any Ollama instance (local or cloud) with batching, concurrency control, and a global API for all modules and systems to use.",
+  "version": "1.0.0",
+  "authors": [{"name":"AI Companion Team"}],
+  "compatibility": {
+    "minimum": "12",
+    "verified": "12"
+  },
+  "esmodules": ["scripts/ollama-bridge.js"],
+  "styles": ["styles/ollama-bridge.css"],
+  "url": "https://github.com/darrenmcguff-GRC/ollama-bridge",
+  "manifest": "https://raw.githubusercontent.com/darrenmcguff-GRC/ollama-bridge/main/module.json",
+  "download": "https://raw.githubusercontent.com/darrenmcguff-GRC/ollama-bridge/main/ollama-bridge.zip",
+  "readme": "https://raw.githubusercontent.com/darrenmcguff-GRC/ollama-bridge/main/README.md",
+  "license": "MIT",
+  "bugs": "https://github.com/darrenmcguff-GRC/ollama-bridge/issues",
+  "flags": {}
+}

@@ -1,0 +1,288 @@
+const OLLAMA_MODULE_ID = 'ollama-bridge';
+
+/* ═══════════════════════════════════════════════════════════════════
+   OLLAMA BRIDGE v1.0.0 — Native AI service for Foundry VTT
+   Provides global API for any module/system to call Ollama (local
+   or cloud) with configurable concurrency, batching, and error
+   recovery.
+   ═══════════════════════════════════════════════════════════════════ */
+
+class OllamaBridge {
+  /* ── request queue ── */
+  static _queue = [];
+  static _running = 0;
+
+  /* ── global API registration ── */
+  static registerAPI() {
+    const mod = game.modules.get(OLLAMA_MODULE_ID);
+    if (mod) mod.api = this;
+    globalThis.OllamaBridge = this;
+  }
+
+  /* ── settings ── */
+  static registerSettings() {
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaEnabled', {
+      scope: 'world', config: true, type: Boolean, default: false,
+      name: 'Ollama AI Enabled',
+      hint: 'Master switch for the Ollama bridge.'
+    });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaUrl', {
+      scope: 'world', config: true, type: String, default: 'http://localhost:11434',
+      name: 'Ollama URL',
+      hint: 'Base URL of your Ollama instance (local or cloud).'
+    });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaModel', {
+      scope: 'world', config: true, type: String, default: 'llama3',
+      name: 'Default Model',
+      hint: 'Model name to use when none is specified in the call.'
+    });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaMaxConcurrent', {
+      scope: 'world', config: true, type: Number, default: 3,
+      name: 'Max Concurrent Requests',
+      hint: 'How many requests to send in parallel. Ollama itself may queue extras.'
+    });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaTemperature', {
+      scope: 'world', config: true, type: Number, default: 0.7,
+      name: 'Temperature',
+      hint: 'Creativity randomness (0.0 = deterministic, 1.0 = creative).'
+    });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaSystemPrompt', {
+      scope: 'world', config: true, type: String, default: 'You are a helpful AI assistant for a tabletop RPG. Be concise and creative.',
+      name: 'System Prompt',
+      hint: 'Default system prompt sent with every generation.'
+    });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaTimeout', {
+      scope: 'world', config: true, type: Number, default: 30000,
+      name: 'Request Timeout (ms)',
+      hint: 'Abort requests that take longer than this.'
+    });
+  }
+
+  static get _config() {
+    return {
+      enabled:   game.settings.get(OLLAMA_MODULE_ID, 'ollamaEnabled'),
+      url:       game.settings.get(OLLAMA_MODULE_ID, 'ollamaUrl').replace(/\/$/, ''),
+      model:     game.settings.get(OLLAMA_MODULE_ID, 'ollamaModel'),
+      maxConcurrent: Math.max(1, game.settings.get(OLLAMA_MODULE_ID, 'ollamaMaxConcurrent') || 3),
+      temperature: game.settings.get(OLLAMA_MODULE_ID, 'ollamaTemperature'),
+      system:    game.settings.get(OLLAMA_MODULE_ID, 'ollamaSystemPrompt'),
+      timeout:   game.settings.get(OLLAMA_MODULE_ID, 'ollamaTimeout') || 30000
+    };
+  }
+
+  /* ── health check ── */
+  static async ping() {
+    const cfg = this._config;
+    if (!cfg.enabled) return { ok: false, error: 'Ollama bridge is disabled in settings.' };
+    try {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      const res = await fetch(`${cfg.url}/api/tags`, { method: 'GET', signal: ctrl.signal });
+      clearTimeout(t);
+      if (!res.ok) return { ok: false, error: `HTTP ${res.status}` };
+      const data = await res.json();
+      const models = (data.models || []).map(m => m.name || m.model);
+      return { ok: true, models };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  }
+
+  /* ── single text generation (/api/generate) ── */
+  static async generate(prompt, opts = {}) {
+    const cfg = this._config;
+    if (!cfg.enabled) throw new Error('Ollama bridge is disabled.');
+    const model = opts.model || cfg.model;
+    const body = {
+      model,
+      prompt,
+      stream: false,
+      options: {
+        temperature: opts.temperature ?? cfg.temperature
+      }
+    };
+    if (opts.system !== undefined) body.system = opts.system;
+    else if (cfg.system) body.system = cfg.system;
+    if (opts.format) body.format = opts.format;
+    if (opts.images) body.images = opts.images;
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout);
+
+    const res = await fetch(`${cfg.url}/api/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+
+    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    return data.response || '';
+  }
+
+  /* ── chat completion (/api/chat) ── */
+  static async chat(messages, opts = {}) {
+    const cfg = this._config;
+    if (!cfg.enabled) throw new Error('Ollama bridge is disabled.');
+    const model = opts.model || cfg.model;
+    const body = {
+      model,
+      messages,
+      stream: false,
+      options: {
+        temperature: opts.temperature ?? cfg.temperature
+      }
+    };
+    if (opts.format) body.format = opts.format;
+    if (opts.images) body.images = opts.images;
+    if (opts.tools) body.tools = opts.tools;
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout);
+
+    const res = await fetch(`${cfg.url}/api/chat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+
+    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    return data.message?.content || '';
+  }
+
+  /* ── embeddings (/api/embeddings) ── */
+  static async embed(input, opts = {}) {
+    const cfg = this._config;
+    if (!cfg.enabled) throw new Error('Ollama bridge is disabled.');
+    const model = opts.embedModel || opts.model || cfg.model;
+    const body = { model, prompt: input };
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout);
+
+    const res = await fetch(`${cfg.url}/api/embeddings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: ctrl.signal
+    });
+    clearTimeout(t);
+
+    if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
+    const data = await res.json();
+    return data.embedding || [];
+  }
+
+  /* ── batch generate (respects maxConcurrent) ── */
+  static async generateBatch(prompts, opts = {}) {
+    const cfg = this._config;
+    if (!cfg.enabled) throw new Error('Ollama bridge is disabled.');
+    const max = opts.maxConcurrent || cfg.maxConcurrent;
+    const results = [];
+    for (let i = 0; i < prompts.length; i += max) {
+      const batch = prompts.slice(i, i + max);
+      const promises = batch.map(p =>
+        this.generate(p, opts).catch(e => ({ _error: true, message: e.message }))
+      );
+      const batchResults = await Promise.all(promises);
+      results.push(...batchResults);
+    }
+    return results;
+  }
+
+  /* ── batch chat (respects maxConcurrent) ── */
+  static async chatBatch(conversations, opts = {}) {
+    const cfg = this._config;
+    if (!cfg.enabled) throw new Error('Ollama bridge is disabled.');
+    const max = opts.maxConcurrent || cfg.maxConcurrent;
+    const results = [];
+    for (let i = 0; i < conversations.length; i += max) {
+      const batch = conversations.slice(i, i + max);
+      const promises = batch.map(msgs =>
+        this.chat(msgs, opts).catch(e => ({ _error: true, message: e.message }))
+      );
+      const batchResults = await Promise.all(promises);
+      results.push(...batchResults);
+    }
+    return results;
+  }
+
+  /* ── simple wrapper for NPC flavour ── */
+  static async narrate(context, opts = {}) {
+    const system = opts.system || 'You are a creative RPG narrator. Write vivid, concise prose. No OOC text.';
+    return this.generate(context, { ...opts, system });
+  }
+
+  /* ── UI: quick prompt dialog ── */
+  static async promptDialog() {
+    const cfg = this._config;
+    const health = await this.ping();
+    const modelList = health.ok ? health.models.join(', ') : 'unreachable';
+
+    const template = `
+      <form>
+        <div class="form-group"><label>Ollama Status</label><input type="text" value="${health.ok ? 'Online' : 'Offline: ' + health.error}" disabled></div>
+        <div class="form-group"><label>Available Models</label><input type="text" value="${modelList}" disabled></div>
+        <hr>
+        <div class="form-group"><label>Prompt</label><textarea name="prompt" rows="4" placeholder="Ask the AI something..."></textarea></div>
+        <div class="form-group"><label>Model</label><input type="text" name="model" value="${cfg.model}"></div>
+        <div class="form-group"><label>Temperature</label><input type="number" name="temp" value="${cfg.temperature}" step="0.1" min="0" max="2"></div>
+      </form>
+    `;
+
+    return new Promise((resolve) => {
+      new Dialog({
+        title: 'Ollama Bridge — Quick Prompt',
+        content: template,
+        buttons: {
+          send: {
+            icon: '<i class="fas fa-paper-plane"></i>',
+            label: 'Send',
+            callback: async (html) => {
+              const form = html[0].querySelector('form');
+              const prompt = form.prompt.value.trim();
+              const model = form.model.value.trim();
+              const temp = parseFloat(form.temp.value);
+              if (!prompt) { ui.notifications.warn('Enter a prompt.'); resolve(null); return; }
+              try {
+                ui.notifications.info('Ollama is thinking…');
+                const reply = await this.generate(prompt, { model, temperature: temp });
+                await ChatMessage.create({
+                  user: game.userId,
+                  speaker: ChatMessage.getSpeaker({ alias: 'Ollama AI' }),
+                  content: `<div class="ollama-reply" style="border-left:3px solid #8b5cf6;padding-left:8px;"><p><strong>Prompt:</strong> ${prompt}</p><hr><p>${reply.replace(/\n/g, '<br>')}</p></div>`
+                });
+                resolve(reply);
+              } catch (e) {
+                ui.notifications.error(`Ollama error: ${e.message}`);
+                resolve(null);
+              }
+            }
+          },
+          cancel: { icon: '<i class="fas fa-times"></i>', label: 'Cancel', callback: () => resolve(null) }
+        },
+        default: 'send'
+      }).render(true);
+    });
+  }
+}
+
+/* ── Hooks ── */
+Hooks.on('init', () => {
+  OllamaBridge.registerSettings();
+});
+
+Hooks.on('ready', () => {
+  OllamaBridge.registerAPI();
+  if (game.settings.get(OLLAMA_MODULE_ID, 'ollamaEnabled')) {
+    console.log('%c[Ollama Bridge] Ready — call OllamaBridge.generate(prompt) or game.modules.get("ollama-bridge").api.generate(prompt)', 'color:#8b5cf6;font-weight:bold');
+  }
+});
+
+/* ── Expose ── */
+globalThis.OllamaBridge = OllamaBridge;
