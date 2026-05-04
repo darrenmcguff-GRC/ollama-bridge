@@ -1,10 +1,10 @@
 const OLLAMA_MODULE_ID = 'ollama-bridge';
 
 /* ═══════════════════════════════════════════════════════════════════
-   OLLAMA BRIDGE v1.0.0 — Native AI service for Foundry VTT
+   OLLAMA BRIDGE v1.1.0 — Native AI service for Foundry VTT
    Provides global API for any module/system to call Ollama (local
-   or cloud) with configurable concurrency, batching, and error
-   recovery.
+   or cloud) with configurable concurrency, batching, image
+   generation, and error recovery.
    ═══════════════════════════════════════════════════════════════════ */
 
 class OllamaBridge {
@@ -82,8 +82,18 @@ class OllamaBridge {
     };
   }
 
-  /* ── authenticated fetch wrapper ── */
+  /* ── authenticated fetch wrapper (JSON response) ── */
   static async _makeRequest(endpoint, body, opts = {}) {
+    return this._fetch(endpoint, body, { ...opts, parseJson: true });
+  }
+
+  /* ── authenticated fetch wrapper (raw response — for binary/image data) ── */
+  static async _makeRequestRaw(endpoint, body, opts = {}) {
+    return this._fetch(endpoint, body, { ...opts, parseJson: false });
+  }
+
+  /* ── core fetch logic ── */
+  static async _fetch(endpoint, body, opts = {}) {
     const cfg = this._config;
     const headers = {
       'Content-Type': 'application/json',
@@ -105,7 +115,9 @@ class OllamaBridge {
       if (res.status === 401) throw new Error('Ollama authentication failed — check API key');
       if (res.status === 403) throw new Error('Ollama access denied — verify API key permissions');
       if (!res.ok) throw new Error(`Ollama HTTP ${res.status}: ${await res.text()}`);
-      return await res.json();
+
+      if (opts.parseJson) return await res.json();
+      return res; // return raw Response for binary handlers
     } catch(e) {
       clearTimeout(t);
       throw e;
@@ -241,44 +253,70 @@ class OllamaBridge {
       options: { temperature: opts.temperature ?? 0.7 }
     };
 
-    const headers = {
-      'Content-Type': 'application/json',
-      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {})
-    };
+    const timeout = opts.timeout || 180000;
 
-    const ctrl = new AbortController();
-    const t = setTimeout(() => ctrl.abort(), opts.timeout || 120000);
-
+    // Try JSON response first (most common for Ollama image models)
     try {
-      const res = await fetch(`${cfg.url}/api/generate`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal: ctrl.signal
-      });
-      clearTimeout(t);
+      const json = await this._makeRequest('/api/generate', body, { timeout });
+      if (json.image && typeof json.image === 'string') return json.image;
+      if (json.images && Array.isArray(json.images) && json.images.length > 0) {
+        const img = json.images[0];
+        // Some models return base64 without prefix
+        if (typeof img === 'string') {
+          if (img.startsWith('data:image/')) return img;
+          if (img.startsWith('/9j/')) return `data:image/jpeg;base64,${img}`;
+          if (img.startsWith('iVBOR')) return `data:image/png;base64,${img}`;
+          return `data:image/png;base64,${img}`;
+        }
+      }
+      // Check text response for embedded base64 image
+      const txt = json.response || '';
+      if (txt.startsWith('data:image/') || txt.startsWith('/9j/') || txt.startsWith('iVBOR')) {
+        if (txt.startsWith('data:image/')) return txt;
+        if (txt.startsWith('/9j/')) return `data:image/jpeg;base64,${txt}`;
+        return `data:image/png;base64,${txt}`;
+      }
 
-      if (!res.ok) throw new Error(`Ollama image generation HTTP ${res.status}: ${await res.text()}`);
+      // If JSON didn't contain image data, the model may send raw image bytes
+      // Fall through to raw request
+    } catch (e) {
+      // For models that send raw image bytes, _makeRequest may fail to parse JSON
+      // or the model simply doesn't return JSON — try raw
+    }
 
+    // Raw image response path (flux, etc. — they return image/png directly)
+    try {
+      const res = await this._makeRequestRaw('/api/generate', body, { timeout });
       const contentType = res.headers.get('Content-Type') || '';
 
       if (contentType.includes('image') || contentType.includes('octet-stream')) {
-        // Raw image response (flux etc. output image bytes directly)
         const blob = await res.blob();
         return await OllamaBridge._blobToBase64(blob);
       }
 
-      // JSON response
-      const json = await res.json();
-      // Some models return image(s) in response
-      if (json.image) return json.image;
-      if (json.images && json.images.length > 0) return json.images[0];
-      // Check if text response is actually a base64 data URI
-      const txt = json.response || '';
-      if (txt.startsWith('data:image/') || txt.startsWith('/9j/') || txt.startsWith('iVBOR')) return txt;
-      throw new Error(`Ollama image model "${model}" returned text, not image data. Try a different model (e.g., flux). Response: ${txt.slice(0, 100)}`);
+      // If it returned JSON after all, try to parse it manually
+      const text = await res.text();
+      try {
+        const json = JSON.parse(text);
+        if (json.image && typeof json.image === 'string') {
+          if (json.image.startsWith('data:image/')) return json.image;
+          const prefix = json.image.startsWith('/9j/') ? 'data:image/jpeg;base64,' : 'data:image/png;base64,';
+          return prefix + json.image;
+        }
+        if (json.images && Array.isArray(json.images) && json.images.length > 0) {
+          const img = json.images[0];
+          if (img.startsWith('data:image/')) return img;
+          const prefix = img.startsWith('/9j/') ? 'data:image/jpeg;base64,' : 'data:image/png;base64,';
+          return prefix + img;
+        }
+      } catch { /* not JSON either */ }
+
+      throw new Error(
+        `Ollama image model "${model}" returned content-type "${contentType}" without valid image data. `
+        + 'Check that the model is an image-generation model (e.g., flux, sd3.5-large-turbo). '
+        + `Response preview: ${text.slice(0, 100)}`
+      );
     } catch(e) {
-      clearTimeout(t);
       throw e;
     }
   }
