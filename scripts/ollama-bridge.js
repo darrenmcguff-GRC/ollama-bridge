@@ -61,6 +61,11 @@ class OllamaBridge {
       name: 'API Key (optional)',
       hint: 'Bearer token for ollama.com cloud API. Leave blank for local instances.'
     });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaImageModel', {
+      scope: 'world', config: true, type: String, default: 'flux',
+      name: 'Image Generation Model',
+      hint: 'Model to use for AI image generation (e.g., flux, sd3.5-large-turbo, minicpm-v).'
+    });
   }
 
   static get _config() {
@@ -72,7 +77,8 @@ class OllamaBridge {
       temperature: game.settings.get(OLLAMA_MODULE_ID, 'ollamaTemperature'),
       system:    game.settings.get(OLLAMA_MODULE_ID, 'ollamaSystemPrompt'),
       timeout:   game.settings.get(OLLAMA_MODULE_ID, 'ollamaTimeout') || 30000,
-      apiKey:    game.settings.get(OLLAMA_MODULE_ID, 'ollamaApiKey') || ''
+      apiKey:    game.settings.get(OLLAMA_MODULE_ID, 'ollamaApiKey') || '',
+      imageModel: game.settings.get(OLLAMA_MODULE_ID, 'ollamaImageModel') || 'flux'
     };
   }
 
@@ -220,6 +226,71 @@ class OllamaBridge {
       results.push(...batchResults);
     }
     return results;
+  }
+
+  /* ── image generation (/api/generate with image model) ── */
+  static async generateImage(prompt, opts = {}) {
+    const cfg = this._config;
+    if (!cfg.enabled) throw new Error('Ollama bridge is disabled.');
+    const model = opts.model || game.settings.get(OLLAMA_MODULE_ID, 'ollamaImageModel') || 'flux';
+
+    const body = {
+      model,
+      prompt,
+      stream: false,
+      options: { temperature: opts.temperature ?? 0.7 }
+    };
+
+    const headers = {
+      'Content-Type': 'application/json',
+      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {})
+    };
+
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), opts.timeout || 120000);
+
+    try {
+      const res = await fetch(`${cfg.url}/api/generate`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: ctrl.signal
+      });
+      clearTimeout(t);
+
+      if (!res.ok) throw new Error(`Ollama image generation HTTP ${res.status}: ${await res.text()}`);
+
+      const contentType = res.headers.get('Content-Type') || '';
+
+      if (contentType.includes('image') || contentType.includes('octet-stream')) {
+        // Raw image response (flux etc. output image bytes directly)
+        const blob = await res.blob();
+        return await OllamaBridge._blobToBase64(blob);
+      }
+
+      // JSON response
+      const json = await res.json();
+      // Some models return image(s) in response
+      if (json.image) return json.image;
+      if (json.images && json.images.length > 0) return json.images[0];
+      // Check if text response is actually a base64 data URI
+      const txt = json.response || '';
+      if (txt.startsWith('data:image/') || txt.startsWith('/9j/') || txt.startsWith('iVBOR')) return txt;
+      throw new Error(`Ollama image model "${model}" returned text, not image data. Try a different model (e.g., flux). Response: ${txt.slice(0, 100)}`);
+    } catch(e) {
+      clearTimeout(t);
+      throw e;
+    }
+  }
+
+  /* ── blob to base64 data URI ── */
+  static _blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   }
 
   /* ── simple wrapper for NPC flavour ── */
