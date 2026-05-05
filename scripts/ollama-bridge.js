@@ -27,14 +27,14 @@ class OllamaBridge {
       hint: 'Master switch for the Ollama bridge.'
     });
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaUrl', {
-      scope: 'world', config: true, type: String, default: 'http://localhost:11434',
+      scope: 'world', config: true, type: String, default: 'https://hermes-bridge.luxtenebris.online',
       name: 'Ollama URL',
-      hint: 'Base URL of your Ollama instance. Use http://localhost:11434 for local, https://ollama.com for cloud, or http://localhost:3001 if running the companion proxy.'
+      hint: 'Base URL of your Ollama instance. Defaults to the Hermes Bridge proxy. Use http://localhost:11434 for local, or http://localhost:3001 for the companion proxy.'
     });
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaModel', {
-      scope: 'world', config: true, type: String, default: 'llama3',
+      scope: 'world', config: true, type: String, default: 'rnj-1:8b',
       name: 'Default Model',
-      hint: 'Model name to use when none is specified in the call.'
+      hint: 'Model name to use when none is specified in the call. Available on Hermes Bridge: rnj-1:8b, nemotron-3-super.'
     });
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaMaxConcurrent', {
       scope: 'world', config: true, type: Number, default: 3,

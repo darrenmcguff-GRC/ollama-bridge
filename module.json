@@ -2,7 +2,7 @@
   "id": "ollama-bridge",
   "title": "Ollama Bridge",
   "description": "Native AI service integration for Foundry VTT. Connects to any Ollama instance (local or cloud) with configurable API key auth, batching, concurrency control, image generation, and a global API.",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "authors": [{"name":"AI Companion Team"}],
   "compatibility": {
     "minimum": "12",
