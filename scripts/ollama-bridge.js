@@ -32,9 +32,9 @@ class OllamaBridge {
       hint: 'Base URL of your Ollama instance. Defaults to the Hermes Bridge proxy. Use http://localhost:11434 for local, or http://localhost:3001 for the companion proxy.'
     });
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaModel', {
-      scope: 'world', config: true, type: String, default: 'rnj-1:8b',
+      scope: 'world', config: true, type: String, default: 'gemma4:31b-cloud',
       name: 'Default Model',
-      hint: 'Model name to use when none is specified in the call. Available on Hermes Bridge: rnj-1:8b, nemotron-3-super.'
+      hint: 'Model name to use when none is specified in the call.'
     });
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaMaxConcurrent', {
       scope: 'world', config: true, type: Number, default: 3,
