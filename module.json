@@ -1,16 +1,24 @@
 {
   "id": "ollama-bridge",
   "title": "Ollama Bridge",
-  "description": "Native AI service integration for Foundry VTT. Connects to any Ollama instance (local or cloud) with configurable API key auth, batching, concurrency control, image generation, and a global API.",
-  "version": "1.2.1",
-  "authors": [{"name":"AI Companion Team"}],
+  "description": "Native AI service integration for Foundry VTT with secure proxy support. Connects to any Ollama instance (local or cloud) with configurable API key auth, batching, concurrency control, image generation, and a global API. Now with proxy auth token setting, rate limiting, IP/CIDR allowlisting, and improved security.",
+  "version": "2.0.0",
+  "authors": [
+    {
+      "name": "AI Companion Team"
+    }
+  ],
   "compatibility": {
     "minimum": "12",
     "verified": "14",
     "maximum": "14"
   },
-  "esmodules": ["scripts/ollama-bridge.js"],
-  "styles": ["styles/ollama-bridge.css"],
+  "esmodules": [
+    "scripts/ollama-bridge.js"
+  ],
+  "styles": [
+    "styles/ollama-bridge.css"
+  ],
   "url": "https://github.com/darrenmcguff-GRC/ollama-bridge",
   "manifest": "https://raw.githubusercontent.com/darrenmcguff-GRC/ollama-bridge/main/module.json",
   "download": "https://github.com/darrenmcguff-GRC/ollama-bridge/archive/refs/heads/main.zip",

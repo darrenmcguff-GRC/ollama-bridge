@@ -1,7 +1,7 @@
 const OLLAMA_MODULE_ID = 'ollama-bridge';
 
 /* ═══════════════════════════════════════════════════════════════════
-   OLLAMA BRIDGE v1.1.0 — Native AI service for Foundry VTT
+   OLLAMA BRIDGE v2.0.0 — Native AI service for Foundry VTT
    Provides global API for any module/system to call Ollama (local
    or cloud) with configurable concurrency, batching, image
    generation, and error recovery.
@@ -34,7 +34,7 @@ class OllamaBridge {
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaModel', {
       scope: 'world', config: true, type: String, default: 'gemma4:31b-cloud',
       name: 'Default Model',
-      hint: 'Model name to use when none is specified in the call.'
+      hint: 'Model name to use when none is specified in the call. Hermes Bridge provides: gemma4:31b-cloud, deepseek-v4-flash, qwen3-coder-next, etc.'
     });
     game.settings.register(OLLAMA_MODULE_ID, 'ollamaMaxConcurrent', {
       scope: 'world', config: true, type: Number, default: 3,
@@ -66,6 +66,11 @@ class OllamaBridge {
       name: 'Image Generation Model',
       hint: 'Model to use for AI image generation (e.g., flux, sd3.5-large-turbo, minicpm-v).'
     });
+    game.settings.register(OLLAMA_MODULE_ID, 'ollamaProxyToken', {
+      scope: 'world', config: true, type: String, default: '',
+      name: 'Proxy Auth Token (optional)',
+      hint: 'If your Ollama proxy requires authentication, enter the shared secret here. Sent as X-Ollama-Proxy header. Leave blank if not using a proxy with auth.'
+    });
   }
 
   static get _config() {
@@ -78,7 +83,8 @@ class OllamaBridge {
       system:    game.settings.get(OLLAMA_MODULE_ID, 'ollamaSystemPrompt'),
       timeout:   game.settings.get(OLLAMA_MODULE_ID, 'ollamaTimeout') || 30000,
       apiKey:    game.settings.get(OLLAMA_MODULE_ID, 'ollamaApiKey') || '',
-      imageModel: game.settings.get(OLLAMA_MODULE_ID, 'ollamaImageModel') || 'flux'
+      imageModel: game.settings.get(OLLAMA_MODULE_ID, 'ollamaImageModel') || 'flux',
+      proxyToken: game.settings.get(OLLAMA_MODULE_ID, 'ollamaProxyToken') || ''
     };
   }
 
@@ -97,7 +103,8 @@ class OllamaBridge {
     const cfg = this._config;
     const headers = {
       'Content-Type': 'application/json',
-      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {})
+      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {}),
+      ...(cfg.proxyToken ? { 'X-Ollama-Proxy': cfg.proxyToken } : {})
     };
 
     const ctrl = new AbortController();
@@ -127,7 +134,8 @@ class OllamaBridge {
   static async _makeGetRequest(endpoint, opts = {}) {
     const cfg = this._config;
     const headers = {
-      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {})
+      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {}),
+      ...(cfg.proxyToken ? { 'X-Ollama-Proxy': cfg.proxyToken } : {})
     };
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout || 5000);
