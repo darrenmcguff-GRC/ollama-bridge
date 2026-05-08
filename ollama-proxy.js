@@ -77,6 +77,9 @@ function ipInRange(ip, cidr) {
 
 /* ── Security middleware ── */
 app.use((req, res, next) => {
+  // OPTIONS preflight — let CORS middleware handle it, skip auth
+  if (req.method === 'OPTIONS') return next();
+
   const clientIp = req.headers['x-forwarded-for']?.split(',')[0]?.trim()
     || req.socket?.remoteAddress?.replace(/^::ffff:/, '')
     || 'unknown';
