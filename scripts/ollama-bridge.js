@@ -1,7 +1,7 @@
 const OLLAMA_MODULE_ID = 'ollama-bridge';
 
 /* ═══════════════════════════════════════════════════════════════════
-   OLLAMA BRIDGE v2.0.0 — Native AI service for Foundry VTT
+   OLLAMA BRIDGE v2.0.1 — Native AI service for Foundry VTT
    Provides global API for any module/system to call Ollama (local
    or cloud) with configurable concurrency, batching, image
    generation, and error recovery.

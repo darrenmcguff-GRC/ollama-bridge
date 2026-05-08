@@ -2,7 +2,7 @@
   "id": "ollama-bridge",
   "title": "Ollama Bridge",
   "description": "Native AI service integration for Foundry VTT with secure proxy support. Connects to any Ollama instance (local or cloud) with configurable API key auth, batching, concurrency control, image generation, and a global API. Now with proxy auth token setting, rate limiting, IP/CIDR allowlisting, and improved security.",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "authors": [
     {
       "name": "AI Companion Team"
