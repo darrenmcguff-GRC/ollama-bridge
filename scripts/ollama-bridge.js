@@ -103,15 +103,19 @@ class OllamaBridge {
     const cfg = this._config;
     const headers = {
       'Content-Type': 'application/json',
-      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {}),
-      ...(cfg.proxyToken ? { 'X-Ollama-Proxy': cfg.proxyToken } : {})
+      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {})
     };
+
+    // Proxy token as query param to avoid CORS preflight (custom headers trigger OPTIONS)
+    const url = cfg.proxyToken
+      ? `${cfg.url}${endpoint}${endpoint.includes('?') ? '&' : '?'}secret=${encodeURIComponent(cfg.proxyToken)}`
+      : `${cfg.url}${endpoint}`;
 
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout);
 
     try {
-      const res = await fetch(`${cfg.url}${endpoint}`, {
+      const res = await fetch(url, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -134,13 +138,15 @@ class OllamaBridge {
   static async _makeGetRequest(endpoint, opts = {}) {
     const cfg = this._config;
     const headers = {
-      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {}),
-      ...(cfg.proxyToken ? { 'X-Ollama-Proxy': cfg.proxyToken } : {})
+      ...(cfg.apiKey ? { 'Authorization': `Bearer ${cfg.apiKey}` } : {})
     };
+    const getUrl = cfg.proxyToken
+      ? `${cfg.url}${endpoint}${endpoint.includes('?') ? '&' : '?'}secret=${encodeURIComponent(cfg.proxyToken)}`
+      : `${cfg.url}${endpoint}`;
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), opts.timeout || cfg.timeout || 5000);
     try {
-      const res = await fetch(`${cfg.url}${endpoint}`, { method: 'GET', headers, signal: ctrl.signal });
+      const res = await fetch(getUrl, { method: 'GET', headers, signal: ctrl.signal });
       clearTimeout(t);
       if (!res.ok) throw new Error(`Ollama HTTP ${res.status}`);
       return await res.json();
